@@ -56,6 +56,9 @@ enum
 #ifdef _WIN32
 #define PARENT_DIR_STR L".."
 static HANDLE hFind;
+#elif __MORPHOS__
+#define PARENT_DIR_STR "/"
+static DIR *hFind;
 #else
 #define PARENT_DIR_STR ".."
 static DIR *hFind;
@@ -154,7 +157,12 @@ static int8_t findFirst(fileEntry_t *searchRec)
 	searchRec->filesize = (fData.nFileSizeHigh > 0) ? -1 : fData.nFileSizeLow;
 	searchRec->isDir = (fData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? true : false;
 #else
-	hFind = opendir(".");
+#ifdef __MORPHOS__
+		hFind = opendir("");
+#else
+		hFind = opendir(".");
+#endif
+
 	if (hFind == NULL)
 		return LFF_DONE;
 
@@ -416,6 +424,16 @@ bool changePathToDesktop(void)
 	}
 
 	return false;
+#elif __MORPHOS__
+	/*char *homePath = "PROGDIR:";
+	if (homePath != NULL && chdir(homePath) == 0)
+	{
+		//printf("beuh...\n");
+		//chdir("."); // keep home dir in case we couldn't change the dir to desktop
+		return true;
+	}*/
+
+	return false;
 #else
 	char *homePath = getenv("HOME");
 	if (homePath != NULL && chdir(homePath) == 0)
@@ -428,7 +446,7 @@ bool changePathToDesktop(void)
 #endif
 }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__MORPHOS__)
 bool changePathToHome(void)
 {
 	char *homePath = getenv("HOME");

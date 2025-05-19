@@ -3546,6 +3546,9 @@ static bool handleGUIButtons(int32_t button) // are you prepared to enter the ju
 
 		case PTB_MOD2WAV:
 		{
+#ifdef __MORPHOS__
+			displayErrorMsg("NOT IMPLEMENTED"); return false;
+#else
 			if (askBox(ASKBOX_MOD2WAV, "PLEASE SELECT"))
 			{
 				char fileName[20 + 4 + 1];
@@ -3570,6 +3573,7 @@ static bool handleGUIButtons(int32_t button) // are you prepared to enter the ju
 
 				mod2WavRender(fileName);
 			}
+#endif
 		}
 		break;
 
@@ -3885,6 +3889,8 @@ static bool handleGUIButtons(int32_t button) // are you prepared to enter the ju
 		{
 #ifdef _WIN32
 			diskOpSetPath(L"..", DISKOP_CACHE);
+#elif __MORPHOS__
+			diskOpSetPath("/", DISKOP_CACHE);
 #else
 			diskOpSetPath("..", DISKOP_CACHE);
 #endif

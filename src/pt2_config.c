@@ -70,14 +70,16 @@ void loadConfig(void)
 	config.maxSampleLength = 65534;
 	config.restrictedPattEditClick = false;
 
+#ifndef __MORPHOS__
 #ifndef _WIN32
 	getcwd(oldCwd, PATH_MAX);
+#endif
 #endif
 
 	// load protracker.ini
 	bool proTrackerDotIniFound = false;
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__MORPHOS__)
 	f = fopen("protracker.ini", "r");
 	if (f != NULL)
 		proTrackerDotIniFound = true;
@@ -114,7 +116,7 @@ void loadConfig(void)
 	// load PT.Config (if available)
 	bool ptDotConfigFound = false;
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__MORPHOS__)
 	f = openPTDotConfig();
 	if (f != NULL)
 		ptDotConfigFound = true;
@@ -150,7 +152,7 @@ void loadConfig(void)
 		editor.configFound = true;
 
 	// load colors.ini (if available)
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__MORPHOS__)
 	loadColorsDotIni();
 #else
 	// check in program executable directory (first priority)

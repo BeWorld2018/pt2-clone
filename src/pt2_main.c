@@ -46,6 +46,11 @@ module_t *song = NULL; // globalized
 
 static bool backupMadeAfterCrash;
 
+#ifdef __MORPHOS__
+unsigned long __stack = 1024 * 1024;
+static const char __attribute((used)) *amiga_ver = "$VER: pt2-clone " PROG_VER_STR " (19.05.2025) ported by BeWorld\n";
+#endif
+
 #ifdef _WIN32
 #define SYSMSG_FILE_ARG (WM_USER + 1)
 #define ARGV_SHARED_MEM_MAX_LEN ((MAX_PATH * 2) + 2)
@@ -106,7 +111,7 @@ static void clearStructs(void)
 
 int main(int argc, char *argv[])
 {
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__MORPHOS__)
 	struct sigaction act, oldAct;
 #endif
 
@@ -124,7 +129,9 @@ int main(int argc, char *argv[])
 #pragma message("At least version 2.0.7 is recommended.")
 #endif
 
+#if !defined(__MORPHOS__)
 	SDL_SetThreadPriority(SDL_THREAD_PRIORITY_HIGH);
+#endif
 	SDL_EnableScreenSaver(); // allow screensaver to activate
 
 	clearStructs();
@@ -133,7 +140,7 @@ int main(int argc, char *argv[])
 #ifndef _DEBUG
 #ifdef _WIN32
 	SetUnhandledExceptionFilter(exceptionHandler);
-#else
+#elif !defined(__MORPHOS__)
 	memset(&act, 0, sizeof (act));
 	act.sa_handler = exceptionHandler;
 	act.sa_flags = SA_RESETHAND;
@@ -334,7 +341,9 @@ int main(int argc, char *argv[])
 	fillToVuMetersBgBuffer();
 	updateCursorPos();
 
+#ifndef __MORPHOS__
 	SDL_ShowWindow(video.window);
+#endif
 
 	if (config.startInFullscreen)
 		toggleFullscreen();

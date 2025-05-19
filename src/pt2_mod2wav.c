@@ -271,19 +271,19 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 	// go back and fill in WAV header
 	rewind(f);
 
-	wavHeader.chunkID = 0x46464952; // "RIFF"
-	wavHeader.chunkSize = totalRiffChunkLen;
-	wavHeader.format = 0x45564157; // "WAVE"
-	wavHeader.subchunk1ID = 0x20746D66; // "fmt "
-	wavHeader.subchunk1Size = 16;
-	wavHeader.audioFormat = 1;
-	wavHeader.numChannels = 2;
-	wavHeader.sampleRate = config.mod2WavOutputFreq;
-	wavHeader.bitsPerSample = 16;
-	wavHeader.byteRate = (wavHeader.sampleRate * wavHeader.numChannels * wavHeader.bitsPerSample) / 8;
-	wavHeader.blockAlign = (wavHeader.numChannels * wavHeader.bitsPerSample) / 8;
-	wavHeader.subchunk2ID = 0x61746164; // "data"
-	wavHeader.subchunk2Size = sampleCounter * sizeof (int16_t) * 2;
+	wavHeader.chunkID =  SDL_Swap32(0x46464952); // "RIFF"
+	wavHeader.chunkSize = SDL_Swap32(totalRiffChunkLen);
+	wavHeader.format =  SDL_Swap32(0x45564157); // "WAVE"
+	wavHeader.subchunk1ID = SDL_Swap32(0x20746D66); // "fmt "
+	wavHeader.subchunk1Size = SDL_Swap32(16);
+	wavHeader.audioFormat = SDL_Swap16(1);
+	wavHeader.numChannels = SDL_Swap16(2);
+	wavHeader.sampleRate = SDL_Swap32(config.mod2WavOutputFreq);
+	wavHeader.bitsPerSample = SDL_Swap16(16);
+	wavHeader.byteRate = SDL_Swap32((SDL_Swap32(wavHeader.sampleRate) * SDL_Swap16(wavHeader.numChannels) * SDL_Swap16(wavHeader.bitsPerSample)) / 8);
+	wavHeader.blockAlign = SDL_Swap16((SDL_Swap16(wavHeader.numChannels) * SDL_Swap16(wavHeader.bitsPerSample)) / 8);
+	wavHeader.subchunk2ID = SDL_Swap32(0x61746164); // "data"
+	wavHeader.subchunk2Size = SDL_Swap32(sampleCounter * sizeof (int16_t) * 2);
 
 	// write main header
 	fwrite(&wavHeader, sizeof (wavHeader_t), 1, f);
@@ -292,7 +292,7 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 	// apply fadeout (if enabled)
 	if (editor.mod2WavFadeOut)
 	{
-		uint32_t numFadeOutSamples = config.mod2WavOutputFreq * editor.mod2WavFadeOutSeconds;
+		uint32_t numFadeOutSamples = SDL_Swap32(config.mod2WavOutputFreq) * SDL_Swap32(editor.mod2WavFadeOutSeconds);
 		if (numFadeOutSamples > sampleCounter)
 			numFadeOutSamples = sampleCounter;
 
@@ -301,7 +301,7 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 		const double dFadeOutDelta = 1.0 / numFadeOutSamples;
 		double dFadeOutVal = 1.0;
 
-		fseek(f, endOfDataOffset - (numFadeOutSamples * sizeof (int16_t) * 2), SEEK_SET);
+		fseek(f, SDL_Swap32(endOfDataOffset) - (numFadeOutSamples * sizeof (int16_t) * 2), SEEK_SET);
 
 		uint32_t samplesLeft = numFadeOutSamples;
 		while (samplesLeft > 0)
@@ -310,7 +310,7 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 			if (samplesTodo > samplesLeft)
 				samplesTodo = samplesLeft;
 
-			fread(fadeOutBuffer, sizeof (int16_t), samplesTodo * 2, f);
+			fread(fadeOutBuffer, sizeof (int16_t), SDL_Swap32(samplesTodo) * 2, f);
 			fseek(f, 0 - (samplesTodo * sizeof (int16_t) * 2), SEEK_CUR);
 
 			// apply fadeout
@@ -321,7 +321,7 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 				dFadeOutVal -= dFadeOutDelta;
 			}
 
-			fwrite(fadeOutBuffer, sizeof (int16_t), samplesTodo * 2, f);
+			fwrite(fadeOutBuffer, sizeof (int16_t), SDL_Swap32(samplesTodo) * 2, f);
 
 			samplesLeft -= samplesTodo;
 		}

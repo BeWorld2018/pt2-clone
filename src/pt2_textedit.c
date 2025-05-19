@@ -1214,6 +1214,8 @@ bool handleTextEditMode(SDL_Scancode scancode)
 				{
 #ifdef _WIN32
 					diskOpSetPath(L"..", DISKOP_CACHE);
+#elif __MORPHOS__
+					diskOpSetPath("/", DISKOP_CACHE);
 #else
 					diskOpSetPath("..", DISKOP_CACHE);
 #endif

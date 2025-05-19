@@ -33,6 +33,9 @@ static void iffWriteChunkHeader(FILE *f, char *chunkName, uint32_t chunkLen)
 {
 	fwrite(chunkName, sizeof (int32_t), 1, f);
 	chunkLen = SWAP32(chunkLen);
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+	chunkLen = SDL_Swap32(chunkLen);
+#endif
 	fwrite(&chunkLen, sizeof (int32_t), 1, f);
 }
 
@@ -40,12 +43,18 @@ static void iffWriteChunkHeader(FILE *f, char *chunkName, uint32_t chunkLen)
 static void iffWriteUint32(FILE *f, uint32_t value)
 {
 	value = SWAP32(value);
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+	value = SDL_Swap32(value);
+#endif
 	fwrite(&value, sizeof (int32_t), 1, f);
 }
 
 static void iffWriteUint16(FILE *f, uint16_t value)
 {
 	value = SWAP16(value);
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+	value = SDL_Swap16(value);
+#endif
 	fwrite(&value, sizeof (int16_t), 1, f);
 }
 
@@ -142,51 +151,51 @@ bool saveSample(bool checkIfFileExist, bool giveNewFreeFilename)
 	}
 
 	const int8_t *sampleData = &song->sampleData[s->offset];
-	const uint32_t sampleLength = s->length;
-	const uint32_t loopStart = s->loopStart & ~1;
-	const uint32_t loopLength = s->loopLength & ~1;
+	uint32_t sampleLength = s->length;
+	uint32_t loopStart = s->loopStart & ~1;
+	uint32_t loopLength = s->loopLength & ~1;
 
 	switch (diskop.smpSaveType)
 	{
 		default:
 		case DISKOP_SMP_WAV:
 		{
-			wavHeader.format = 0x45564157; // "WAVE"
-			wavHeader.chunkID = 0x46464952; // "RIFF"
-			wavHeader.subchunk1ID = 0x20746D66; // "fmt "
-			wavHeader.subchunk2ID = 0x61746164; // "data"
-			wavHeader.subchunk1Size = 16;
-			wavHeader.subchunk2Size = sampleLength;
+			wavHeader.format = SDL_Swap32(0x45564157); // "WAVE"
+			wavHeader.chunkID = SDL_Swap32(0x46464952); // "RIFF"
+			wavHeader.subchunk1ID = SDL_Swap32(0x20746D66); // "fmt "
+			wavHeader.subchunk2ID = SDL_Swap32(0x61746164); // "data"
+			wavHeader.subchunk1Size = SDL_Swap32(16);
+			wavHeader.subchunk2Size = SDL_Swap32(sampleLength);
 			wavHeader.chunkSize = 36 + wavHeader.subchunk2Size;
-			wavHeader.audioFormat = 1;
-			wavHeader.numChannels = 1;
-			wavHeader.bitsPerSample = 8;
-			wavHeader.sampleRate = PLAYBACK_FREQ;
-			wavHeader.byteRate = wavHeader.sampleRate * wavHeader.numChannels * wavHeader.bitsPerSample / 8;
-			wavHeader.blockAlign = wavHeader.numChannels * wavHeader.bitsPerSample / 8;
+			wavHeader.audioFormat = SDL_Swap16(1);
+			wavHeader.numChannels = SDL_Swap16(1);
+			wavHeader.bitsPerSample = SDL_Swap16(8);
+			wavHeader.sampleRate = SDL_Swap32(PLAYBACK_FREQ);
+			wavHeader.byteRate = SDL_Swap32((SDL_Swap32(wavHeader.sampleRate) * SDL_Swap16(wavHeader.numChannels) * SDL_Swap16(wavHeader.bitsPerSample)) / 8);
+			wavHeader.blockAlign = SDL_Swap16(SDL_Swap16(wavHeader.numChannels) * SDL_Swap16(wavHeader.bitsPerSample) / 8);
 
 			// set "sampler" chunk if loop is enabled
 			if (loopStart+loopLength > 2) // loop enabled?
 			{
 				wavHeader.chunkSize += sizeof (samplerChunk_t);
 				memset(&samplerChunk, 0, sizeof (samplerChunk_t));
-				samplerChunk.chunkID = 0x6C706D73; // "smpl"
-				samplerChunk.chunkSize = 60;
-				samplerChunk.dwSamplePeriod = 1000000000 / PLAYBACK_FREQ;
-				samplerChunk.dwMIDIUnityNote = 60; // 60 = MIDI middle-C
-				samplerChunk.cSampleLoops = 1;
-				samplerChunk.loop.dwStart = loopStart;
-				samplerChunk.loop.dwEnd = (loopStart + loopLength) - 1;
+				samplerChunk.chunkID = SDL_Swap32(0x6C706D73); // "smpl"
+				samplerChunk.chunkSize = SDL_Swap32(60);
+				samplerChunk.dwSamplePeriod = SDL_Swap32(1000000000 / PLAYBACK_FREQ);
+				samplerChunk.dwMIDIUnityNote = SDL_Swap32(60); // 60 = MIDI middle-C
+				samplerChunk.cSampleLoops = SDL_Swap32(1);
+				samplerChunk.loop.dwStart = SDL_Swap32(loopStart);
+				samplerChunk.loop.dwEnd = SDL_Swap32(loopStart) + SDL_Swap32(loopLength) - 1;
 			}
 
 			// set ModPlug Tracker chunk (used for sample volume only in this case)
 			wavHeader.chunkSize += sizeof (mptExtraChunk);
 			memset(&mptExtraChunk, 0, sizeof (mptExtraChunk));
-			mptExtraChunk.chunkID = 0x61727478; // "xtra"
+			mptExtraChunk.chunkID = SDL_Swap32(0x61727478); // "xtra"
 			mptExtraChunk.chunkSize = sizeof (mptExtraChunk) - 4 - 4;
-			mptExtraChunk.defaultPan = 128; // 0..255
-			mptExtraChunk.defaultVolume = s->volume * 4; // 0..256
-			mptExtraChunk.globalVolume = 64; // 0..64
+			mptExtraChunk.defaultPan = SDL_Swap16(128); // 0..255
+			mptExtraChunk.defaultVolume = SDL_Swap16(s->volume * 4); // 0..256
+			mptExtraChunk.globalVolume = SDL_Swap16(64); // 0..64
 
 			fwrite(&wavHeader, sizeof (wavHeader_t), 1, f);
 

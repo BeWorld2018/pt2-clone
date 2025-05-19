@@ -2001,7 +2001,7 @@ bool setupVideo(void)
 			rendererFlags |= SDL_RENDERER_PRESENTVSYNC;
 		}
 	}
-
+#ifndef __MORPHOS__
 	uint32_t windowFlags = SDL_WINDOW_HIDDEN | SDL_WINDOW_ALLOW_HIGHDPI;
 
 #ifndef SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR
@@ -2009,7 +2009,9 @@ bool setupVideo(void)
 #define SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR "SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR"
 #endif
 	SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
-
+#else
+	uint32_t windowFlags = SDL_WINDOW_SHOWN;
+#endif
 	video.window = SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED,
 		SDL_WINDOWPOS_CENTERED, screenW, screenH, windowFlags);
 

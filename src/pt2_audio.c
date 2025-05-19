@@ -426,7 +426,11 @@ bool setupAudio(void)
 
 	want.freq = config.soundFrequency;
 	want.samples = (uint16_t)config.soundBufferSize;
+#ifdef __MORPHOS__
+	want.format = AUDIO_S16SYS;
+#else
 	want.format = AUDIO_S16;
+#endif
 	want.channels = 2;
 	want.callback = audioCallback;
 	want.userdata = NULL;

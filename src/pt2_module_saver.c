@@ -11,6 +11,9 @@
 #include "pt2_sampler.h"
 #include "pt2_config.h"
 #include "pt2_askbox.h"
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+#include <SDL.h>
+#endif
 
 bool modSave(char *fileName)
 {
@@ -30,6 +33,9 @@ bool modSave(char *fileName)
 		fwrite(s->text, 1, 22, f);
 
 		uint16_t length = SWAP16(s->length >> 1);
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+		length = SDL_Swap16(length);
+#endif
 		fwrite(&length, sizeof (int16_t), 1, f);
 
 		fputc(s->fineTune & 0xF, f);
@@ -48,7 +54,13 @@ bool modSave(char *fileName)
 		}
 
 		uint16_t loopStart16 = SWAP16(loopStart >> 1);
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+		loopStart16 = SDL_Swap16(loopStart16);
+#endif
 		uint16_t loopLength16 = SWAP16(loopLength >> 1);
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+		loopLength16 = SDL_Swap16(loopLength16);
+#endif
 
 		fwrite(&loopStart16, sizeof (int16_t), 1, f);
 		fwrite(&loopLength16, sizeof (int16_t), 1, f);

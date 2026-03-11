@@ -294,6 +294,7 @@ void readMouseXY(void)
 	}
 	else
 	{
+#ifndef __MORPHOS__
 		mouse.buttonState = SDL_GetGlobalMouseState(&mx, &my);
 
 		mouse.absX = mx;
@@ -304,6 +305,9 @@ void readMouseXY(void)
 
 		mx -= windowX;
 		my -= windowY;
+#else
+		mouse.buttonState = SDL_GetMouseState(&mx, &my);
+#endif
 	}
 
 	mouse.rawX = mx;
@@ -3522,9 +3526,6 @@ static bool handleGUIButtons(int32_t button) // are you prepared to enter the ju
 
 		case PTB_MOD2WAV:
 		{
-#ifdef __MORPHOS__
-			displayErrorMsg("NOT IMPLEMENTED"); return false;
-#else
 			if (askBox(ASKBOX_MOD2WAV, "PLEASE SELECT"))
 			{
 				char fileName[20 + 4 + 1];
@@ -3549,7 +3550,6 @@ static bool handleGUIButtons(int32_t button) // are you prepared to enter the ju
 
 				mod2WavRender(fileName);
 			}
-#endif
 		}
 		break;
 

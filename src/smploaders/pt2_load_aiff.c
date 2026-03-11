@@ -187,8 +187,8 @@ bool loadAIFFSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
-				audioDataS8[i] = (audioDataS8[(i * 2) + 0] + audioDataS8[(i * 2) + 1]) >> 1;;
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
+				audioDataS8[i] = (audioDataS8[(i * 2) + 0] + audioDataS8[(i * 2) + 1]) >> 1;
 		}
 
 		// 2x downsampling
@@ -236,7 +236,7 @@ bool loadAIFFSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
 				audioDataS16[i] = (audioDataS16[(i << 1) + 0] + audioDataS16[(i << 1) + 1]) >> 1;
 		}
 
@@ -266,7 +266,7 @@ bool loadAIFFSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		for (int32_t i = 0; i < sampleLength; i++)
 		{
 			int32_t smp32 = (int32_t)round(audioDataS16[i] * dAmp);
-			assert(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
+			ASSERT(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
 			smpDataPtr[i] = (int8_t)smp32;
 		}
 
@@ -305,7 +305,7 @@ bool loadAIFFSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
 			{
 				int64_t smp = ((int64_t)audioDataS32[(i << 1) + 0] + audioDataS32[(i << 1) + 1]) >> 1;
 				audioDataS32[i] = (int32_t)smp;
@@ -372,7 +372,7 @@ bool loadAIFFSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
 			{
 				int64_t smp = ((int64_t)audioDataS32[(i << 1) + 0] + audioDataS32[(i << 1) + 1]) >> 1;
 				audioDataS32[i] = (int32_t)smp;
@@ -415,6 +415,8 @@ bool loadAIFFSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 	{
 		if (++sampleLength > config.maxSampleLength)
 			sampleLength = config.maxSampleLength;
+		else
+			smpDataPtr[sampleLength-1] = 0;
 	}
 
 	s->length = sampleLength;

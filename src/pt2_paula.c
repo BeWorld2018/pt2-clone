@@ -1,4 +1,4 @@
-/* Simple Paula emulator by 8bitbubsy (with BLEP synthesis by aciddose).
+/* Simple Paula emulator (with BLEP synthesis by aciddose).
 ** Limitation: The audio output frequency can't be below 31389Hz ( ceil(PAULA_PAL_CLK / 113.0) )
 **
 ** WARNING: These functions must not be called while paulaGenerateSamples() is running!
@@ -8,10 +8,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <math.h>
+#include "pt2_header.h" // PI
 #include "pt2_paula.h"
 #include "pt2_blep.h"
 #include "pt2_rcfilters.h"
-#include "pt2_math.h"
 
 typedef struct voice_t
 {
@@ -27,12 +28,12 @@ typedef struct voice_t
 	double dDelta, dPhase;
 
 	// for BLEP synthesis
-	double dLastDelta, dLastPhase, dLastDeltaMul, dBlepOffset, dDeltaMul;
+	double dLastDelta, dLastPhase, dBlepOffset;
 
 	// registers modified by Paula functions
 	const int8_t *AUD_LC; // location (data pointer)
 	uint16_t AUD_LEN;
-	double AUD_PER_delta, AUD_PER_deltamul;
+	double AUD_PER_delta;
 	double AUD_VOL;
 } paulaVoice_t;
 
@@ -46,9 +47,11 @@ static paulaVoice_t paula[PAULA_VOICES];
 
 void paulaSetup(double dOutputFreq, uint32_t amigaModel)
 {
-	assert(dOutputFreq != 0.0);
+	ASSERT(dOutputFreq != 0.0);
 	dPaulaOutputFreq = dOutputFreq;
 	dPeriodToDeltaDiv = PAULA_PAL_CLK / dPaulaOutputFreq;
+
+	clearBlepState();
 
 	useLowpassFilter = useHighpassFilter = true;
 	clearOnePoleFilterState(&filterLo);
@@ -84,7 +87,7 @@ void paulaSetup(double dOutputFreq, uint32_t amigaModel)
 		// A1200 1-pole (6dB/oct) RC high-pass filter:
 		R = 1360.0; // R324 (1K ohm resistor) + R325 (360 ohm resistor)
 		C = 2.2e-5; // C334 (22uF capacitor)
-		cutoff = 1.0 / (PT2_2PI * R * C); // ~5.319Hz
+		cutoff = 1.0 / ((2.0 * PI) * R * C); // ~5.319Hz
 		setupOnePoleFilter(dPaulaOutputFreq, cutoff, &filterHi);
 	}
 	else
@@ -94,13 +97,13 @@ void paulaSetup(double dOutputFreq, uint32_t amigaModel)
 		// A500 1-pole (6dB/oct) RC low-pass filter:
 		R = 360.0; // R321 (360 ohm)
 		C = 1e-7;  // C321 (0.1uF)
-		cutoff = 1.0 / (PT2_2PI * R * C); // ~4420.971Hz
+		cutoff = 1.0 / ((2.0 * PI) * R * C); // ~4420.971Hz
 		setupOnePoleFilter(dPaulaOutputFreq, cutoff, &filterLo);
 
 		// A500 1-pole (6dB/oct) RC high-pass filter:
 		R = 1390.0;   // R324 (1K ohm) + R325 (390 ohm)
 		C = 2.233e-5; // C334 (22uF) + C335 (0.33uF)
-		cutoff = 1.0 / (PT2_2PI * R * C); // ~5.128Hz
+		cutoff = 1.0 / ((2.0 * PI) * R * C); // ~5.128Hz
 		setupOnePoleFilter(dPaulaOutputFreq, cutoff, &filterHi);
 	}
 
@@ -109,8 +112,8 @@ void paulaSetup(double dOutputFreq, uint32_t amigaModel)
 	R2 = 10000.0; // R323 (10K ohm)
 	C1 = 6.8e-9;  // C322 (6800pF)
 	C2 = 3.9e-9;  // C323 (3900pF)
-	cutoff = 1.0 / (PT2_2PI * pt2_sqrt(R1 * R2 * C1 * C2)); // ~3090.533Hz
-	qfactor = pt2_sqrt(R1 * R2 * C1 * C2) / (C2 * (R1 + R2)); // ~0.660225
+	cutoff = 1.0 / ((2.0 * PI) * sqrt(R1 * R2 * C1 * C2)); // ~3090.533Hz
+	qfactor = sqrt(R1 * R2 * C1 * C2) / (C2 * (R1 + R2)); // ~0.660225
 	setupTwoPoleFilter(dPaulaOutputFreq, cutoff, qfactor, &filterLED);
 }
 
@@ -137,15 +140,10 @@ static void audxper(int32_t ch, uint16_t period)
 
 	// to be read on next sampling step (or on DMA trigger)
 	v->AUD_PER_delta = dPeriodToDeltaDiv / realPeriod;
-	v->AUD_PER_deltamul = 1.0 / v->AUD_PER_delta; // for BLEP synthesis (prevents division in inner mixing loop)
 
-	// handle BLEP synthesis edge-cases
-
+	// handle BLEP synthesis edge-case
 	if (v->dLastDelta == 0.0)
 		v->dLastDelta = v->AUD_PER_delta;
-
-	if (v->dLastDeltaMul == 0.0)
-		v->dLastDeltaMul = v->AUD_PER_deltamul;
 }
 
 static void audxvol(int32_t ch, uint16_t vol)
@@ -173,15 +171,13 @@ static void audxdat(int32_t ch, const int8_t *src)
 
 static inline void refetchPeriod(paulaVoice_t *v) // Paula stage
 {
-	// set BLEP stuff
+	// set BLEP variables
 	v->dLastPhase = v->dPhase;
 	v->dLastDelta = v->dDelta;
-	v->dLastDeltaMul = v->dDeltaMul;
-	v->dBlepOffset = v->dLastPhase * v->dLastDeltaMul;
+	v->dBlepOffset = v->dLastPhase / v->dLastDelta;
 
 	// Paula only updates period (delta) during period refetching (this stage)
 	v->dDelta = v->AUD_PER_delta;
-	v->dDeltaMul = v->AUD_PER_deltamul;
 
 	v->nextSampleStage = true;
 }
@@ -348,6 +344,11 @@ static inline void nextSample(paulaVoice_t *v, blep_t *b)
 	// progress AUD_DAT buffer
 	v->AUD_DAT[0] = v->AUD_DAT[1];
 	v->sampleCounter--;
+}
+
+void clearBlepState(void)
+{
+	memset(blep, 0, sizeof (blep));
 }
 
 // output is -4.00 .. 3.97 (can be louder because of high-pass filter)

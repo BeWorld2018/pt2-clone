@@ -187,6 +187,7 @@
       <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <MinimalRebuild>false</MinimalRebuild>
+      <FloatingPointModel>Fast</FloatingPointModel>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -216,6 +217,7 @@
       <OmitFramePointers>false</OmitFramePointers>
       <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <FloatingPointModel>Fast</FloatingPointModel>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -264,7 +266,6 @@
     <ClInclude Include="..\..\src\pt2_helpers.h" />
     <ClInclude Include="..\..\src\pt2_hpc.h" />
     <ClInclude Include="..\..\src\pt2_keyboard.h" />
-    <ClInclude Include="..\..\src\pt2_math.h" />
     <ClInclude Include="..\..\src\pt2_mod2wav.h" />
     <ClInclude Include="..\..\src\pt2_module_loader.h" />
     <ClInclude Include="..\..\src\pt2_module_saver.h" />
@@ -305,19 +306,6 @@
     <ClCompile Include="..\..\src\gfx\pt2_gfx_spectrum.c" />
     <ClCompile Include="..\..\src\gfx\pt2_gfx_tracker.c" />
     <ClCompile Include="..\..\src\gfx\pt2_gfx_vumeter.c" />
-    <ClCompile Include="..\..\src\libflac\bitmath.c" />
-    <ClCompile Include="..\..\src\libflac\bitreader.c" />
-    <ClCompile Include="..\..\src\libflac\crc.c" />
-    <ClCompile Include="..\..\src\libflac\fixed.c" />
-    <ClCompile Include="..\..\src\libflac\format.c" />
-    <ClCompile Include="..\..\src\libflac\lpc.c" />
-    <ClCompile Include="..\..\src\libflac\md5.c" />
-    <ClCompile Include="..\..\src\libflac\memory.c" />
-    <ClCompile Include="..\..\src\libflac\metadata_iterators.c" />
-    <ClCompile Include="..\..\src\libflac\metadata_object.c" />
-    <ClCompile Include="..\..\src\libflac\stream_decoder.c" />
-    <ClCompile Include="..\..\src\libflac\window.c" />
-    <ClCompile Include="..\..\src\libflac\windows_unicode_filenames.c" />
     <ClCompile Include="..\..\src\modloaders\pt2_load_mod15.c" />
     <ClCompile Include="..\..\src\modloaders\pt2_load_mod31.c" />
     <ClCompile Include="..\..\src\modloaders\pt2_pp_unpack.c" />
@@ -334,7 +322,6 @@
     <ClCompile Include="..\..\src\pt2_hpc.c" />
     <ClCompile Include="..\..\src\pt2_keyboard.c" />
     <ClCompile Include="..\..\src\pt2_main.c" />
-    <ClCompile Include="..\..\src\pt2_math.c" />
     <ClCompile Include="..\..\src\pt2_mod2wav.c" />
     <ClCompile Include="..\..\src\pt2_module_loader.c" />
     <ClCompile Include="..\..\src\pt2_paula.c" />

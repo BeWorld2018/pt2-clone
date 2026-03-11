@@ -16,8 +16,9 @@
 
 enum
 {
-	WAV_FORMAT_PCM = 0x0001,
-	WAV_FORMAT_IEEE_FLOAT = 0x0003
+	WAV_FORMAT_PCM = 1,
+	WAV_FORMAT_IEEE_FLOAT = 3,
+	WAV_FORMAT_EXTENSIBLE = 65534
 };
 
 bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
@@ -127,7 +128,14 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 	fread(&sampleRate,  4, 1, f);
 	fseek(f, 6, SEEK_CUR);
 	fread(&bitsPerSample, 2, 1, f);
+
 	int32_t sampleLength = dataLen;
+
+	if (audioFormat == WAV_FORMAT_EXTENSIBLE)
+	{
+		fseek(f, 8, SEEK_CUR);
+		fread(&audioFormat, 2, 1, f);
+	}
 	// ---------------------------
 
 	if (sampleRate == 0 || sampleLength == 0 || sampleLength >= (int32_t)filesize*(bitsPerSample/8))
@@ -196,7 +204,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
 			{
 				int32_t smp32 = (audioDataU8[(i << 1) + 0] - 128) + (audioDataU8[(i << 1) + 1] - 128);
 				smp32 = 128 + (smp32 >> 1);
@@ -245,8 +253,8 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
-				audioDataS16[i] = (audioDataS16[(i << 1) + 0] + audioDataS16[(i << 1) + 1]) >> 1;;
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
+				audioDataS16[i] = (audioDataS16[(i << 1) + 0] + audioDataS16[(i << 1) + 1]) >> 1;
 		}
 
 		// 2x downsampling
@@ -275,7 +283,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		for (int32_t i = 0; i < sampleLength; i++)
 		{
 			int32_t smp32 = (int32_t)round(audioDataS16[i] * dAmp);
-			assert(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
+			ASSERT(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
 			smpDataPtr[i] = (int8_t)smp32;
 		}
 
@@ -307,7 +315,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
 			{
 				int64_t smp = ((int64_t)audioDataS32[(i << 1) + 0] + audioDataS32[(i << 1) + 1]) >> 1;
 				audioDataS32[i] = (int32_t)smp;
@@ -340,7 +348,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		for (int32_t i = 0; i < sampleLength; i++)
 		{
 			int32_t smp32 = (int32_t)round(audioDataS32[i] * dAmp);
-			assert(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
+			ASSERT(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
 			smpDataPtr[i] = (int8_t)smp32;
 		}
 
@@ -371,7 +379,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
 			{
 				int64_t smp = ((int64_t)audioDataS32[(i << 1) + 0] + audioDataS32[(i << 1) + 1]) >> 1;
 				audioDataS32[i] = (int32_t)smp;
@@ -404,7 +412,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		for (int32_t i = 0; i < sampleLength; i++)
 		{
 			int32_t smp32 = (int32_t)round(audioDataS32[i] * dAmp);
-			assert(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
+			ASSERT(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
 			smpDataPtr[i] = (int8_t)smp32;
 		}
 
@@ -437,7 +445,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
 				fAudioDataFloat[i] = (fAudioDataFloat[(i * 2) + 0] + fAudioDataFloat[(i * 2) + 1]) * 0.5f;
 		}
 
@@ -460,7 +468,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		for (int32_t i = 0; i < sampleLength; i++)
 		{
 			int32_t smp32 = (int32_t)roundf(fAudioDataFloat[i] * fAmp);
-			assert(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
+			ASSERT(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
 			smpDataPtr[i] = (int8_t)smp32;
 		}
 
@@ -493,7 +501,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		if (numChannels == 2)
 		{
 			sampleLength >>= 1;
-			for (int32_t i = 0; i < sampleLength-1; i++) // add right channel to left channel
+			for (int32_t i = 0; i < sampleLength; i++) // add right channel to left channel
 				dAudioDataDouble[i] = (dAudioDataDouble[(i * 2) + 0] + dAudioDataDouble[(i * 2) + 1]) * 0.5;
 		}
 
@@ -516,7 +524,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 		for (int32_t i = 0; i < sampleLength; i++)
 		{
 			int32_t smp32 = (int32_t)round(dAudioDataDouble[i] * dAmp);
-			assert(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
+			ASSERT(smp32 >= -128 && smp32 <= 127); // shouldn't happen according to dAmp (but just in case)
 			smpDataPtr[i] = (int8_t)smp32;
 		}
 
@@ -527,6 +535,8 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 	{
 		if (++sampleLength > config.maxSampleLength)
 			sampleLength = config.maxSampleLength;
+		else
+			smpDataPtr[sampleLength-1] = 0;
 	}
 
 	s->length = sampleLength;
@@ -563,7 +573,7 @@ bool loadWAVSample(FILE *f, uint32_t filesize, moduleSample_t *s)
 			loopStart &= ~1;
 			loopLength &= ~1;
 
-			if (loopLength < 2 || loopStart+loopLength >= s->length)
+			if (loopLength < 2 || loopStart+loopLength > s->length)
 			{
 				loopStart = 0;
 				loopLength = 2;

@@ -143,7 +143,7 @@ static void resetAudio(void)
 	const int32_t paulaMixFrequency = audio.oversamplingFlag ? audio.outputRate*2 : audio.outputRate;
 	paulaSetup(paulaMixFrequency, audio.amigaModel);
 	generateBpmTable(audio.outputRate, editor.timingMode == TEMPO_MODE_VBLANK);
-	clearMixerDownsamplerStates();
+	clearDownsample2xStates();
 	modSetTempo(song->currBPM, true); // update BPM (samples per tick) with the tracker's audio frequency
 }
 
@@ -194,7 +194,7 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 	wavHeader_t wavHeader;
 
 	FILE *f = (FILE *)ptr;
-	assert(mod2WavBuffer != NULL && f != NULL);
+	ASSERT(mod2WavBuffer != NULL && f != NULL);
 
 	// skip wav header place, render data first
 	fseek(f, sizeof (wavHeader_t), SEEK_SET);
@@ -218,10 +218,10 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 				break;
 			}
 
-			/* PT replayer ticker (also sets audio.samplesPerTickInt and audio.samplesPerTickFrac).
+			/* Handle replayer tick (also sets audio.samplesPerTickInt and audio.samplesPerTickFrac).
 			** Returns false on end of song.
 			*/
-			if (!intMusic())
+			if (!tickReplayer())
 			{
 				if (--numLoops < 0)
 				{
@@ -262,9 +262,6 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 	uint32_t endOfDataOffset = ftell(f);
 
 	free(mod2WavBuffer);
-
-	if (sampleCounter & 1)
-		fputc(0, f); // pad align byte
 
 	uint32_t totalRiffChunkLen = (uint32_t)ftell(f) - 8;
 
@@ -332,6 +329,9 @@ static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
 	ui.mod2WavFinished = true;
 	ui.updateMod2WavDialog = true;
 
+	if (editor.abortMod2Wav)
+		editor.mod2WavOngoing = false;
+
 	return true;
 }
 
@@ -389,16 +389,19 @@ bool mod2WavRender(char *filename)
 		return false;
 	}
 
-	editor.mod2WavOngoing = true; // set this first
+	// wait for main audio callback to catch MOD2WAV flag
+	editor.mod2WavOngoing = true;
+	while (audio.callbackOngoing)
+		SDL_Delay(5);
 
 	// do some prep work
-	audio.oversamplingFlag = true; 
+	audio.oversamplingFlag = true;
 	generateBpmTable(config.mod2WavOutputFreq, editor.timingMode == TEMPO_MODE_VBLANK);
 	paulaSetup(paulaMixFrequency, audio.amigaModel);
 	storeTempVariables();
 	calcMod2WavTotalRows();
 	restartSong(); // this also updates BPM (samples per tick) with the MOD2WAV audio output rate
-	clearMixerDownsamplerStates();
+	clearDownsample2xStates();
 
 	drawMod2WavProgressDialog();
 	editor.abortMod2Wav = false;
@@ -406,7 +409,7 @@ bool mod2WavRender(char *filename)
 	pointerSetMode(POINTER_MODE_MSG2, NO_CARRY);
 	setStatusMessage("RENDERING MOD...", NO_CARRY);
 
-	editor.mod2WavThread = SDL_CreateThread(mod2WavThreadFunc, NULL, fOut);
+	editor.mod2WavThread = SDL_CreateThread(mod2WavThreadFunc, "MOD2WAV thread", fOut);
 	if (editor.mod2WavThread == NULL)
 	{
 		fclose(fOut);
@@ -424,6 +427,7 @@ bool mod2WavRender(char *filename)
 		return false;
 	}
 
+	SDL_DetachThread(editor.mod2WavThread);
 	return true;
 }
 

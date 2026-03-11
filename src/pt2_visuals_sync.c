@@ -142,17 +142,14 @@ void setVisualsDataPtr(int32_t ch, const int8_t *src)
 
 void calcAudioLatencyVars(int32_t audioBufferSize, int32_t audioFreq)
 {
-	double dInt;
-
 	if (audioFreq == 0)
 		return;
 
-	const double dAudioLatencySecs = audioBufferSize / (double)audioFreq;
+	const double dAudioLatencyTime = (audioBufferSize / (double)audioFreq) * (double)hpcFreq.freq64;
+	double dAudioLatencyTimeInt, dAudioLatencyTimeFrac = modf(dAudioLatencyTime, &dAudioLatencyTimeInt);
 
-	double dFrac = modf(dAudioLatencySecs * (double)hpcFreq.freq64, &dInt);
-
-	audLatencyPerfValInt = (uint32_t)dInt;
-	audLatencyPerfValFrac = (uint64_t)((dFrac * TICK_TIME_FRAC_SCALE) + 0.5); // rounded
+	audLatencyPerfValInt = (uint32_t)dAudioLatencyTimeInt;
+	audLatencyPerfValFrac = (uint64_t)(dAudioLatencyTimeFrac * TICK_TIME_FRAC_SCALE);
 }
 
 void setSyncTickTimeLen(uint32_t timeLenInt, uint64_t timeLenFrac)
@@ -220,7 +217,7 @@ bool chQueuePush(chSyncData_t t)
 	if (!chQueueWriteSize())
 		return false;
 
-	assert(chSync.writePos <= SYNC_QUEUE_LEN);
+	ASSERT(chSync.writePos <= SYNC_QUEUE_LEN);
 	chSync.data[chSync.writePos] = t;
 	chSync.writePos = (chSync.writePos + 1) & SYNC_QUEUE_LEN;
 
@@ -233,7 +230,7 @@ static bool chQueuePop(void)
 		return false;
 
 	chSync.readPos = (chSync.readPos + 1) & SYNC_QUEUE_LEN;
-	assert(chSync.readPos <= SYNC_QUEUE_LEN);
+	ASSERT(chSync.readPos <= SYNC_QUEUE_LEN);
 
 	return true;
 }
@@ -243,7 +240,7 @@ static chSyncData_t *chQueuePeek(void)
 	if (!chQueueReadSize())
 		return NULL;
 
-	assert(chSync.readPos <= SYNC_QUEUE_LEN);
+	ASSERT(chSync.readPos <= SYNC_QUEUE_LEN);
 	return &chSync.data[chSync.readPos];
 }
 
@@ -252,7 +249,7 @@ static uint64_t getChQueueTimestamp(void)
 	if (!chQueueReadSize())
 		return 0;
 
-	assert(chSync.readPos <= SYNC_QUEUE_LEN);
+	ASSERT(chSync.readPos <= SYNC_QUEUE_LEN);
 	return chSync.data[chSync.readPos].timestamp;
 }
 

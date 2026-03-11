@@ -100,15 +100,17 @@ void turnOffVoices(void)
 		setVisualsVolume(i, 0);
 	}
 
-	if (audioWasntLocked)
-		unlockAudio();
+	resetAudioDither();
 
 	editor.tuningToneFlag = false;
+
+	if (audioWasntLocked)
+		unlockAudio();
 }
 
 void initializeModuleChannels(module_t *m)
 {
-	assert(m != NULL);
+	ASSERT(m != NULL);
 
 	memset(m->channels, 0, sizeof (m->channels));
 
@@ -851,10 +853,8 @@ static void sampleOffset(moduleChannel_t *ch)
 	if ((ch->n_cmd & 0xFF) > 0)
 		ch->n_sampleoffset = ch->n_cmd & 0xFF;
 
-	uint16_t newOffset = ch->n_sampleoffset << 7;
-
-	// this signed test is the reason for the 9xx "sample >64kB = silence" bug
-	if ((int16_t)newOffset < (int16_t)ch->n_length)
+	const uint16_t newOffset = ch->n_sampleoffset << 7;
+	if (newOffset < ch->n_length)
 	{
 		ch->n_length -= newOffset;
 		ch->n_start += newOffset << 1;
@@ -1244,14 +1244,18 @@ static void increasePlaybackTimer(void)
 	if (editor.playMode != PLAY_MODE_PATTERN && modBPM >= MIN_BPM && modBPM <= MAX_BPM)
 	{
 		if (editor.timingMode == TEMPO_MODE_CIA)
-			editor.playbackSecondsFrac += musicTimeTab52[modBPM-MIN_BPM];
+			editor.playbackSecondsFrac += tickDuration31fp[modBPM-MIN_BPM];
 		else
-			editor.playbackSecondsFrac += musicTimeTab52[(MAX_BPM-MIN_BPM)+1]; // vblank tempo mode
+			editor.playbackSecondsFrac += tickDuration31fp[(MAX_BPM-MIN_BPM)+1]; // vblank tempo mode
 
-		if (editor.playbackSecondsFrac >= 1ULL << 52)
+		if (editor.playbackSecondsFrac > INT32_MAX)
 		{
-			editor.playbackSecondsFrac &= (1ULL << 52)-1;
-			editor.playbackSeconds++;
+			editor.playbackSecondsFrac &= INT32_MAX;
+
+			if (editor.playbackSeconds >= (99*60)+59) // wrap around 99:59 -> 00:00
+				editor.playbackSeconds = 0;
+			else
+				editor.playbackSeconds++;
 		}
 	}
 }
@@ -1347,7 +1351,7 @@ void modSetTempo(int32_t bpm, bool doLockAudio)
 		unlockAudio();
 }
 
-bool intMusic(void) // replayer ticker
+bool tickReplayer(void)
 {
 	// quirk: CIA BPM changes are delayed by one tick in PT, so handle previous tick's BPM change now
 	if (ciaSetBPM != -1)
@@ -1507,6 +1511,12 @@ void modSetPattern(uint8_t pattern)
 
 void modSetPos(int16_t pos, int16_t row)
 {
+	/*
+	const bool audioWasntLocked = !audio.locked;
+	if (audioWasntLocked)
+		lockAudio();
+	*/
+
 	if (row != -1)
 	{
 		row = CLAMP(row, 0, 63);
@@ -1546,6 +1556,11 @@ void modSetPos(int16_t pos, int16_t row)
 				ui.updatePosEd = true;
 		}
 	}
+
+	/*
+	if (audioWasntLocked)
+		unlockAudio();
+	*/
 
 	ui.updatePatternData = true;
 
@@ -1697,10 +1712,7 @@ void modPlay(int16_t patt, int16_t pos, int8_t row)
 
 	// don't reset playback counter in "play/rec pattern" mode
 	if (editor.playMode != PLAY_MODE_PATTERN)
-	{
-		editor.playbackSeconds = 0;
-		editor.playbackSecondsFrac = 0;
-	}
+		editor.playbackSeconds = editor.playbackSecondsFrac = 0;
 
 	audio.tickSampleCounter = 0; // zero tick sample counter so that it will instantly initiate a tick
 	audio.tickSampleCounterFrac = 0;
@@ -1719,7 +1731,7 @@ void modPlay(int16_t patt, int16_t pos, int8_t row)
 
 void clearSong(void)
 {
-	assert(song != NULL);
+	ASSERT(song != NULL);
 	if (song == NULL)
 		return;
 
@@ -1739,9 +1751,7 @@ void clearSong(void)
 	editor.f9Pos = 48;
 	editor.f10Pos = 63;
 
-	editor.playbackSeconds = 0;
-	editor.playbackSecondsFrac = 0;
-
+	editor.playbackSeconds = editor.playbackSecondsFrac = 0;
 	editor.metroFlag = false;
 	editor.currSample = 0;
 	editor.editMoveAdd = 1;
@@ -1785,7 +1795,7 @@ void clearSong(void)
 
 void clearSamples(void)
 {
-	assert(song != NULL);
+	ASSERT(song != NULL);
 	if (song == NULL)
 		return;
 

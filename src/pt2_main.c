@@ -48,7 +48,7 @@ static bool backupMadeAfterCrash;
 
 #ifdef __MORPHOS__
 unsigned long __stack = 1024 * 1024;
-static const char __attribute((used)) *amiga_ver = "$VER: pt2-clone " PROG_VER_STR " (19.05.2025) ported by BeWorld\n";
+static const char __attribute((used)) *amiga_ver = "$VER: pt2-clone " PROG_VER_STR " (11.03.2026) ported by BeWorld\n";
 #endif
 
 #ifdef _WIN32
@@ -111,7 +111,23 @@ static void clearStructs(void)
 
 int main(int argc, char *argv[])
 {
-#if !defined(_WIN32) && !defined(__MORPHOS__)
+#if !defined(_WIN32) && !defined(__MORPHOS__) // test for SSE/SSE2 presence very first, to make sure no SSE/SSE2 code is attempted to be ran
+	if (!SDL_HasSSE())
+	{
+		MessageBoxA(NULL, "Your computer's processor doesn't have the SSE instruction set " \
+			"which is needed for this program to run. Sorry!", "Error", MB_ICONEXCLAMATION);
+		return 0;
+	}
+
+	if (!SDL_HasSSE2())
+	{
+		MessageBoxA(NULL, "Your computer's processor doesn't have the SSE2 instruction set " \
+			"which is needed for this program to run. Sorry!", "Error", MB_ICONEXCLAMATION);
+		return 0;
+	}
+#endif
+
+#ifndef _WIN32
 	struct sigaction act, oldAct;
 #endif
 
@@ -180,24 +196,12 @@ int main(int argc, char *argv[])
 	SDL_SetHint("SDL_WINDOWS_NO_CLOSE_ON_ALT_F4", "1");
 #endif
 
+	SDL_SetHint("SDL_MOUSE_FOCUS_CLICKTHROUGH", "1");
+
 #ifdef _WIN32
 #ifndef _MSC_VER
 	SetProcessDPIAware();
 #endif
-
-	if (!SDL_HasSSE())
-	{
-		showErrorMsgBox("Your computer's processor doesn't have the SSE instruction set\n" \
-		                "which is needed for this program to run. Sorry!");
-		return 0;
-	}
-
-	if (!SDL_HasSSE2())
-	{
-		showErrorMsgBox("Your computer's processor doesn't have the SSE2 instruction set\n" \
-		                "which is needed for this program to run. Sorry!");
-		return 0;
-	}
 
 	disableWasapi(); // disable problematic WASAPI SDL2 audio driver on Windows (causes clicks/pops sometimes...)
 	                 // 13.03.2020: This is still needed with SDL 2.0.12...
@@ -217,6 +221,8 @@ int main(int argc, char *argv[])
 		showErrorMsgBox("Couldn't initialize SDL: %s", SDL_GetError());
 		return 0;
 	}
+
+	hpc_Init();
 
 	/* Text input is started by default in SDL2, turn it off to remove ~2ms spikes per key press.
 	** We manuallay start it again when someone clicks on a text edit box, and stop it when done.
@@ -275,10 +281,9 @@ int main(int argc, char *argv[])
 	SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);
 #endif
 
-	hpc_Init();
 	hpc_SetDurationInHz(&video.vblankHpc, VBLANK_HZ);
 
-	if (!initKaiserTable() || !setupAudio() || !unpackBMPs())
+	if (!calculateSincKernel() || !setupAudio() || !unpackBMPs())
 	{
 		cleanUp();
 		SDL_Quit();
@@ -385,6 +390,8 @@ int main(int argc, char *argv[])
 
 static void handleInput(void)
 {
+	bool focusGained = false;
+
 	SDL_Event event;
 	while (SDL_PollEvent(&event))
 	{
@@ -394,6 +401,9 @@ static void handleInput(void)
 				video.windowHidden = true;
 			else if (event.window.event == SDL_WINDOWEVENT_SHOWN)
 				video.windowHidden = false;
+
+			if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
+				focusGained = true;
 
 			// reset vblank end time if we minimize window
 			if (event.window.event == SDL_WINDOWEVENT_MINIMIZED || event.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
@@ -474,8 +484,16 @@ static void handleInput(void)
 		}
 		else if (event.type == SDL_MOUSEBUTTONDOWN)
 		{
-			if (ui.sampleMarkingPos == -1 && !ui.forceSampleDrag && !ui.forceVolDrag && !ui.forceSampleEdit)
-				mouseButtonDownHandler(event.button.button);
+			/* If program was not in focus and we clicked somewhere,
+			** only accept the click if an ask box dialog is shown.
+			*/
+			if (!focusGained || ui.askBoxShown)
+			{
+				if (ui.sampleMarkingPos == -1 && !ui.forceSampleDrag && !ui.forceVolDrag && !ui.forceSampleEdit)
+					mouseButtonDownHandler(event.button.button);
+			}
+
+			focusGained = false;
 		}
 #if defined __APPLE__ && defined __aarch64__
 		else if (event.type == SDL_MOUSEMOTION)
@@ -485,25 +503,7 @@ static void handleInput(void)
 #endif
 
 		if (ui.throwExit)
-		{
 			editor.programRunning = false;
-
-			if (diskop.isFilling)
-			{
-				diskop.isFilling = false;
-
-				diskop.forceStopReading = true;
-				SDL_WaitThread(diskop.fillThread, NULL);
-			}
-
-			if (editor.mod2WavOngoing)
-			{
-				editor.mod2WavOngoing = false;
-
-				editor.abortMod2Wav = true;
-				SDL_WaitThread(editor.mod2WavThread, NULL);
-			}
-		}
 	}
 }
 
@@ -573,6 +573,7 @@ static bool initializeVars(void)
 	editor.multiModeNext[3] = 1;
 	ui.introTextShown = true;
 	editor.normalizeFiltersFlag = true;
+	editor.halveSampleFlag = true;
 	editor.markStartOfs = -1;
 	ui.sampleMarkingPos = -1;
 	ui.previousPointerMode = ui.pointerMode;
@@ -604,13 +605,17 @@ oom:
 
 static void handleSigTerm(void)
 {
+	if (diskop.isFilling)
+	{
+		diskop.forceStopReading = true;
+		while (diskop.isFilling) SDL_Delay(5);
+	}
+
 	if (editor.mod2WavOngoing)
 	{
-		editor.mod2WavOngoing = false;
-
 		editor.abortMod2Wav = true;
-		SDL_WaitThread(editor.mod2WavThread, NULL);
-		removeAskBox();
+		while (editor.mod2WavOngoing) SDL_Delay(5);
+		removeAskBox(); // removes MOD2WAV dialog
 	}
 
 	if (song->modified)
@@ -958,7 +963,7 @@ static void cleanUp(void) // never call this inside the main loop!
 	videoClose();
 	freeSprites();
 	freeAudioDeviceList(); // pt2_sampling.c
-	freeKaiserTable(); // pt2_sampling.c
+	freeSincWindow(); // pt2_sampling.c
 
 	if (config.defModulesDir != NULL) free(config.defModulesDir);
 	if (config.defSamplesDir != NULL) free(config.defSamplesDir);

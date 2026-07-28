@@ -27,23 +27,24 @@ enum
 	SAMPLE_MIX  = 2
 };
 
-// this may change after opening the audio input device
-#define SAMPLING_BUFFER_SIZE 1024
-
-#define SAMPLING_MIXER_FRAC_BITS 32
-
-// after several tests, these values yields a good trade-off between quality and compute time
-#define SINC_TAPS 64
+// ok settings based on computational time and audio quality
+#define SINC_TAPS 64 /* 2^n */
 #define SINC_TAPS_BITS 6 /* log2(SINC_TAPS) */
-#define SINC_PHASES 4096
-#define SINC_PHASES_BITS 12 /* log2(SINC_PHASES */
-#define SINC_FSHIFT (SAMPLING_MIXER_FRAC_BITS-(SINC_PHASES_BITS+SINC_TAPS_BITS))
-#define SINC_FMASK ((SINC_TAPS*SINC_PHASES)-SINC_TAPS)
+#define SINC_OVERSAMPLING 256 /* 2^n */
+#define SINC_OVERSAMPLING_BITS 8 /* log2(SINC_OVERSAMPLING) */
 
+#define CENTER_TAP ((SINC_TAPS/2)-1)
+#define SMP_DELTA_FRAC_BITS 32
+#define SMP_DELTA_FRAC_SCALE (1ULL << SMP_DELTA_FRAC_BITS)
+#define SMP_DELTA_FRAC_MASK (SMP_DELTA_FRAC_SCALE-1)
+#define INTRP_PHASE_SHIFT (SMP_DELTA_FRAC_BITS-SINC_OVERSAMPLING_BITS)
+#define INTRP_PHASE_SCALE (1L << INTRP_PHASE_SHIFT)
+#define INTRP_PHASE_MASK (INTRP_PHASE_SCALE-1)
 #define SAMPLE_PREVIEW_WITDH 194
 #define SAMPLE_PREVIEW_HEIGHT 38
 #define MAX_INPUT_DEVICES 99
 #define VISIBLE_LIST_ENTRIES 4
+#define SAMPLING_BUFFER_SIZE 1024 /* may change on audio input init */
 
 static volatile bool callbackBusy, displayingBuffer, samplingEnded;
 static bool audioDevOpen;
@@ -53,8 +54,8 @@ static int16_t displayBuffer[SAMPLING_BUFFER_SIZE];
 static int32_t samplingMode = SAMPLE_MIX, inputFrequency, roundedOutputFrequency;
 static int32_t numAudioInputDevs, audioInputDevListOffset, selectedDev;
 static int32_t bytesSampled, maxSamplingLength, inputBufferSize;
-static float *fSincKernel, *fSincWindow, *fSamplingBuffer, *fSamplingBufferOrig;
-static double dOutputFrequency;
+static float *fSincLUT, *fSamplingBuffer, *fSamplingBufferOrig;
+static double dOutputFrequency, dResamplingRatio;
 static SDL_AudioDeviceID recordDev;
 
 static void listAudioDevices(void);
@@ -76,91 +77,62 @@ static inline double besselI0(double z)
 	return s;
 }
 
-bool calculateSincKernel(void) // called once on tracker init
+static inline double sinc(double x, double cutoff)
 {
-	fSincWindow = (float *)malloc(SINC_PHASES * SINC_TAPS * sizeof (float));
-	if (fSincWindow == NULL)
-	{
-		showErrorMsgBox("Out of memory!");
-		return false;
-	}
-
-	const double kaiserBeta = 9.6377;
-
-	const double besselI0Beta = 1.0 / besselI0(kaiserBeta);
-	for (int32_t i = 0; i < SINC_PHASES * SINC_TAPS; i++)
-	{
-		const double x = ((i & (SINC_TAPS-1)) - ((SINC_TAPS/2)-1)) - ((i >> SINC_TAPS_BITS) * (1.0 / SINC_PHASES));
-
-		// Kaiser-Bessel window
-		const double n = x * (1.0 / (SINC_TAPS / 2));
-		const double window = besselI0(kaiserBeta * sqrt(1.0 - n * n)) * besselI0Beta;
-
-		fSincWindow[i] = (float)window;
-	}
-
-	return true;
-}
-
-void freeSincWindow(void)
-{
-	if (fSincWindow != NULL)
-	{
-		free(fSincWindow);
-		fSincWindow = NULL;
-	}
-}
-
-static inline float sincf(float x, float cutoff)
-{
-	if (x == 0.0f)
+	if (x == 0.0)
 	{
 		return cutoff;
 	}
 	else
 	{
-		x *= (float)PI;
-		return sinf(cutoff * x) / x;
+		x *= PI;
+		return sin(x * cutoff) / x;
 	}
 }
 
-// calculated after completion of sampling (before resampling)
-static bool initSincKernel(float sincCutoff)
+static bool calcPolyphaseSincLUT(double sincCutoff)
 {
-	fSincKernel = (float *)malloc(SINC_PHASES * SINC_TAPS * sizeof (float));
-	if (fSincKernel == NULL)
-		return false;
-
-	if (sincCutoff > 1.0f)
-		sincCutoff = 1.0f;
-
-	for (int32_t i = 0; i < SINC_PHASES * SINC_TAPS; i++)
+	fSincLUT = (float *)malloc(SINC_TAPS * (SINC_OVERSAMPLING+1) * sizeof (float));
+	if (fSincLUT == NULL)
 	{
-		const float x = (float)((i & (SINC_TAPS-1)) - ((SINC_TAPS/2)-1)) - ((float)(i >> SINC_TAPS_BITS) * (1.0f / SINC_PHASES));
-		fSincKernel[i] = sincf(x, sincCutoff) * fSincWindow[i];
+		showErrorMsgBox("Out of memory!");
+		return false;
 	}
+
+	const double kaiserBeta = 9.62046; // stopband attenuation of ~96dB
+	const double besselI0BetaMul = 1.0 / besselI0(kaiserBeta);
+
+	for (int32_t i = 0; i < SINC_TAPS * SINC_OVERSAMPLING; i++)
+	{
+		const double x = i * (1.0 / SINC_OVERSAMPLING);
+
+		// Kaiser-Bessel window
+		const double n = (x * (2.0 / SINC_TAPS)) - 1.0;
+		const double window = besselI0(kaiserBeta * sqrt(1.0 - n * n)) * besselI0BetaMul;
+
+		const double wsinc = sinc(x - (double)(SINC_TAPS / 2), sincCutoff) * window;
+
+		// re-arrange for faster logic when in use
+		const int32_t point = i >> SINC_OVERSAMPLING_BITS;
+		const int32_t phase = i & (SINC_OVERSAMPLING-1);
+		fSincLUT[(phase << SINC_TAPS_BITS) + ((SINC_TAPS-1) - point)] = (float)wsinc;
+	}
+
+	// store inverted wrap-around taps after end of LUT (for phase interpolation)
+	float *fEnd = &fSincLUT[SINC_TAPS * SINC_OVERSAMPLING];
+	for (int32_t i = 0; i < SINC_TAPS; i++)
+		fEnd[i] = fSincLUT[(SINC_TAPS-1) - i];
 
 	return true;
 }
 
-static void freeSincKernel(void)
+static void freePolyphaseSincLUT(void)
 {
-	if (fSincKernel != NULL)
+	if (fSincLUT != NULL)
 	{
-		free(fSincKernel);
-		fSincKernel = NULL;
+		free(fSincLUT);
+		fSincLUT = NULL;
 	}
-}
-
-static inline float sincInterpolation(const float *fSmpData, const uint32_t phase32)
-{
-	const float *t = fSincKernel + ((phase32 >> SINC_FSHIFT) & SINC_FMASK);
-
-	float fSmp = 0.0f;
-	for (int32_t i = 0; i < SINC_TAPS; i++)
-		fSmp += fSmpData[i] * t[i];
-
-	return fSmp;
 }
 
 static void updateOutputFrequency(void)
@@ -173,10 +145,10 @@ static void updateOutputFrequency(void)
 		period = 113;
 
 	dOutputFrequency = (double)PAULA_PAL_CLK / period;
-	roundedOutputFrequency = (int32_t)(dOutputFrequency + 0.5);
+	roundedOutputFrequency = (int32_t)(dOutputFrequency + 0.5); // for display
 }
 
-static void SDLCALL samplingCallback(void *userdata, Uint8 *stream, int len)
+static void samplingCallback(void *userdata, Uint8 *stream, int len)
 {
 	callbackBusy = true;
 
@@ -314,12 +286,6 @@ static void selectAudioDevice(int32_t dev)
 	changeStatusText(ui.statusMessage);
 }
 
-void renderSampleMonitor(void)
-{
-	blit32(120, 44, 200, 55, sampleMonitorBMP);
-	memset(displayBuffer, 0, sizeof (displayBuffer));
-}
-
 void freeAudioDeviceList(void)
 {
 	for (int32_t i = 0; i < numAudioInputDevs; i++)
@@ -448,9 +414,11 @@ static void showCurrSample(void)
 
 void renderSamplingBox(void)
 {
-	changeStatusText("PLEASE WAIT ...");
-	flipFrame();
-	hpc_ResetCounters(&video.vblankHpc);
+	modStop();
+	editor.songPlaying = false;
+	editor.playMode = PLAY_MODE_NORMAL;
+	editor.currMode = MODE_IDLE;
+	pointerSetMode(POINTER_MODE_IDLE, DO_CARRY);
 
 	editor.sampleZero = false;
 	editor.blockMarkFlag = false;
@@ -464,27 +432,27 @@ void renderSamplingBox(void)
 
 		displayMainScreen();
 	}
-	setStatusMessage("ALL RIGHT", DO_CARRY);
 
 	blit32(0, 203, 320, 52, samplingBoxBMP);
+
+	// render sample monitor
+	blit32(120, 44, 200, 55, sampleMonitorBMP);
+	memset(displayBuffer, 0, sizeof (displayBuffer));
+	hLine(123, 76, 194, video.palette[PAL_QADSCP]); // draw center line
 
 	updateOutputFrequency();
 	drawSamplingNote();
 	drawSamplingFinetune();
 	drawSamplingFrequency();
 	drawSamplingModeCross();
-	renderSampleMonitor();
+	showCurrSample();
 
+	changeStatusText("PLEASE WAIT...");
+	flipFrame();
+	hpc_ResetCounters(&video.vblankHpc);
 	scanAudioDevices();
 	selectAudioDevice(selectedDev);
-
-	showCurrSample();
-	modStop();
-
-	editor.songPlaying = false;
-	editor.playMode = PLAY_MODE_NORMAL;
-	editor.currMode = MODE_IDLE;
-	pointerSetMode(POINTER_MODE_IDLE, DO_CARRY);
+	setStatusMessage("ALL RIGHT", DO_CARRY);
 }
 
 static int32_t scrPos2SmpBufPos(int32_t x) // x = 0..SAMPLE_PREVIEW_WITDH
@@ -577,7 +545,8 @@ static void startSampling(void)
 
 	ASSERT(roundedOutputFrequency > 0);
 
-	maxSamplingLength = (int32_t)(ceil(((double)config.maxSampleLength*inputFrequency) / dOutputFrequency)) + 1;
+	dResamplingRatio = dOutputFrequency / inputFrequency;
+	maxSamplingLength = (int32_t)ceil(config.maxSampleLength /dResamplingRatio) + 1;
 	
 	const int32_t allocLen = (SINC_TAPS/2) + maxSamplingLength + (SINC_TAPS/2);
 
@@ -592,9 +561,17 @@ static void startSampling(void)
 	// clear tap area before sample
 	memset(fSamplingBufferOrig, 0, (SINC_TAPS/2) * sizeof (float));
 
+	const double sincCutoff = MIN(1.0, dResamplingRatio);
+	if (!calcPolyphaseSincLUT(sincCutoff))
+	{
+		free(fSamplingBufferOrig);
+		statusOutOfMemory();
+		return;
+	}
+
 	bytesSampled = 0;
-	audio.isSampling = true;
 	samplingEnded = false;
+	audio.isSampling = true;
 
 	turnOffVoices();
 
@@ -602,10 +579,31 @@ static void startSampling(void)
 	setStatusMessage("SAMPLING ...", NO_CARRY);
 }
 
+static float sincInterpolation(const float *fSmpData, const uint32_t frac)
+{
+	const uint32_t lutPhase = frac >> INTRP_PHASE_SHIFT;
+	const float fIntrpFrac = (frac & INTRP_PHASE_MASK) * (1.0f / INTRP_PHASE_SCALE);
+
+	// it may look like we go out of bounds for fSinc_2, but we have an extra phase after LUT
+	const float *fSinc_1 = fSincLUT + ( lutPhase    << SINC_TAPS_BITS);
+	const float *fSinc_2 = fSincLUT + ((lutPhase+1) << SINC_TAPS_BITS);
+
+	float fSum = 0.0f;
+	for (int32_t i = 0; i < SINC_TAPS; i++)
+	{
+		const float fSample = fSmpData[i];
+
+		// do linear interpolation between phases
+		const float y1 = fSinc_1[i];
+		const float y2 = fSinc_2[i];
+		fSum += fSample * (y1 + ((y2 - y1) * fIntrpFrac));
+	}
+
+	return fSum;
+}
+
 static int32_t resampleSamplingBuffer(void)
 {
-	const double dResamplingRatio = dOutputFrequency / inputFrequency;
-	
 	int32_t newSampleLength = (int32_t)(bytesSampled * dResamplingRatio) & ~1;
 	if (newSampleLength > config.maxSampleLength)
 		newSampleLength = config.maxSampleLength;
@@ -617,39 +615,28 @@ static int32_t resampleSamplingBuffer(void)
 		return -1;
 	}
 
-	const float sincCutoff = (dResamplingRatio >= 1.0) ? 1.0f : (float)dResamplingRatio;
-	if (!initSincKernel(sincCutoff))
+	// pre-center sample data pointer (left side is pre-cleared)
+	const float *fSmpData = &fSamplingBuffer[-CENTER_TAP];
+	
+	// set out-of-bounds sampling tap area
+	for (int32_t i = 0; i < SINC_TAPS/2; i++)
 	{
-		statusOutOfMemory();
-		return -1;
+		fSamplingBuffer[i-CENTER_TAP] = fSamplingBuffer[0];
+		fSamplingBuffer[bytesSampled+i] = fSamplingBuffer[bytesSampled-1];
 	}
-
-	// resample
-
-	const uint64_t delta64 = (uint64_t)round((UINT32_MAX+1.0) / dResamplingRatio);
-	uint64_t phase64 = 0;
-
-	/*
-	** It may look as if we go out of bounds before and after the allocated
-	** area for fSamplingBuffer, but this has been taken care of during alloc
-	** of fSamplingBufferOrig.
-	*/
-
-	// pre-center sample data pointer
-	const float *fSmpData = &fSamplingBuffer[-((SINC_TAPS/2)-1)];
-
-	// clear interpolation tap area after sampled data
-	memset(&fSamplingBuffer[bytesSampled], 0, (SINC_TAPS/2) * sizeof (float));
+	
+	const uint64_t delta = (uint64_t)round(SMP_DELTA_FRAC_SCALE / dResamplingRatio);
+	uint64_t frac = 0;
 
 	float fSmpPeak = 0.0f;
 	for (int32_t i = 0; i < newSampleLength; i++)
 	{
 		float fSmp;
 
-		if (i < 2) // clear first two bytes (to prevent "stuck beep syndrome")
+		if (i < 2) // clear first 2 samps. (to prevent "stuck beep"), do it here for norm. peak scan
 			fSmp = 0.0f;
 		else
-			fSmp = sincInterpolation(fSmpData, (uint32_t)phase64);
+			fSmp = sincInterpolation(fSmpData, (uint32_t)frac);
 
 		fBuffer[i] = fSmp;
 
@@ -661,12 +648,10 @@ static int32_t resampleSamplingBuffer(void)
 			fSmpPeak = fSmp;
 		// -------------------
 
-		phase64 += delta64;
-		fSmpData += phase64 >> 32;
-		phase64 &= UINT32_MAX;
+		frac += delta;
+		fSmpData += (uint32_t)(frac >> SMP_DELTA_FRAC_BITS);
+		frac &= SMP_DELTA_FRAC_MASK;
 	}
-
-	freeSincKernel();
 
 	// normalize and quantize to 8-bit integer
 
@@ -699,6 +684,8 @@ void stopSampling(void)
 		free(fSamplingBufferOrig);
 		fSamplingBufferOrig = NULL;
 	}
+
+	freePolyphaseSincLUT();
 
 	if (newLength == -1)
 		return; // out of memory

@@ -223,9 +223,8 @@ static void fixZeroesInString(char *str, uint32_t maxLength)
 
 void setupLoadedMod(void)
 {
-	moduleSample_t *s = song->samples;
-	for (int32_t i = 0; i < MOD_SAMPLES; i++, s++)
-		fillSampleRedoBuffer((uint8_t)i);
+	for (uint8_t i = 0; i < MOD_SAMPLES; i++)
+		fillSampleRedoBuffer(i);
 
 	modSetPos(0, 0);
 	modSetPattern(0); // set pattern to 00 instead of first order's pattern
@@ -274,7 +273,6 @@ void setupLoadedMod(void)
 
 void loadModFromArg(char *arg)
 {
-	ui.introTextShown = false;
 	statusAllRight();
 
 	uint32_t filenameLen = (uint32_t)strlen(arg);

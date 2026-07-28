@@ -244,7 +244,7 @@ static void fwriteLE16(const int16_t *src, uint32_t numSamples, FILE *f)
 #endif
 }
 
-static int32_t SDLCALL mod2WavThreadFunc(void *ptr)
+static int32_t mod2WavThreadFunc(void *ptr)
 {
 
 	FILE *f = (FILE *)ptr;

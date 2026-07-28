@@ -2739,18 +2739,21 @@ static bool handleGUIButtons(int32_t button) // are you prepared to enter the ju
 				break;
 			}
 
+			int32_t length;
 			if (editor.markStartOfs != -1 && editor.markStartOfs != editor.markEndOfs && editor.markEndOfs != 0)
 			{
 				ptr8_1 = &song->sampleData[s->offset+editor.markStartOfs];
 				ptr8_2 = &song->sampleData[s->offset+editor.markEndOfs-1];
+				length = editor.markEndOfs - editor.markStartOfs;
 			}
 			else
 			{
 				ptr8_1 = &song->sampleData[s->offset];
 				ptr8_2 = &song->sampleData[s->offset+s->length-1];
+				length = s->length;
 			}
 
-			for (int32_t j = 0; j < s->length / 2; j++)
+			for (int32_t j = 0; j < length / 2; j++)
 			{
 				const int8_t tmpSmp = *ptr8_1;
 				*ptr8_1++ = *ptr8_2;
@@ -3184,7 +3187,7 @@ static bool handleGUIButtons(int32_t button) // are you prepared to enter the ju
 		case PTB_PATTBOX:
 		case PTB_PATTDATA:
 		{
-			if (!ui.introTextShown && (editor.currMode == MODE_IDLE || editor.currMode == MODE_EDIT || editor.playMode != PLAY_MODE_NORMAL))
+			if (editor.currMode == MODE_IDLE || editor.currMode == MODE_EDIT || editor.playMode != PLAY_MODE_NORMAL)
 			{
 				// limit click coordinate to pattern edit number box if needed
 				if (config.restrictedPattEditClick && (mouse.x < 6 || mouse.y < 124 || mouse.x >= 26 || mouse.y >= 135))

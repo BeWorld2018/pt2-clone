@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
 
 	hpc_SetDurationInHz(&video.vblankHpc, VBLANK_HZ);
 
-	if (!calculateSincKernel() || !setupAudio() || !unpackBMPs())
+	if (!setupAudio() || !unpackBMPs())
 	{
 		cleanUp();
 		SDL_Quit();
@@ -320,7 +320,6 @@ int main(int argc, char *argv[])
 	updateWindowTitle(MOD_NOT_MODIFIED);
 	pointerSetMode(POINTER_MODE_IDLE, DO_CARRY);
 	statusAllRight();
-	setStatusMessage("PROTRACKER V2.3D", NO_CARRY);
 
 	// load a .MOD from the command arguments if passed (also ignore OS X < 10.9 -psn argument on double-click launch)
 	if ((argc >= 2 && argv[1][0] != '\0') && (argc != 2 || strncmp(argv[1], "-psn_", 5)))
@@ -473,14 +472,6 @@ static void handleInput(void)
 			armMacGhostMouseCursorFix();
 #endif
 			mouseButtonUpHandler(event.button.button);
-
-			if (ui.introTextShown)
-			{
-				if (!ui.diskOpScreenShown && !editor.errorMsgActive && !ui.askBoxShown)
-					statusAllRight();
-
-				ui.introTextShown = false;
-			}
 		}
 		else if (event.type == SDL_MOUSEBUTTONDOWN)
 		{
@@ -512,11 +503,6 @@ static bool initializeVars(void)
 	setDefaultPalette();
 
 	editor.repeatKeyFlag = (SDL_GetModState() & KMOD_CAPS) ? true : false;
-
-	// 0.52 fixed-point delta for Amiga PAL vblank (~49.92Hz) at VBLANK_HZ (60.0Hz)
-	const double dRatio = AMIGA_PAL_VBLANK_HZ / (double)VBLANK_HZ;
-	video.amigaVblankDelta = (uint64_t)((dRatio * (1ULL << 52)) + 0.5);
-
 	strcpy(editor.mixText, "MIX 01+02 TO 03");
 
 	// allocate some memory
@@ -571,7 +557,6 @@ static bool initializeVars(void)
 	editor.multiModeNext[1] = 3;
 	editor.multiModeNext[2] = 4;
 	editor.multiModeNext[3] = 1;
-	ui.introTextShown = true;
 	editor.normalizeFiltersFlag = true;
 	editor.halveSampleFlag = true;
 	editor.markStartOfs = -1;
@@ -963,7 +948,6 @@ static void cleanUp(void) // never call this inside the main loop!
 	videoClose();
 	freeSprites();
 	freeAudioDeviceList(); // pt2_sampling.c
-	freeSincWindow(); // pt2_sampling.c
 
 	if (config.defModulesDir != NULL) free(config.defModulesDir);
 	if (config.defSamplesDir != NULL) free(config.defSamplesDir);

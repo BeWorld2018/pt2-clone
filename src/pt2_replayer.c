@@ -344,34 +344,30 @@ static void setTremoloControl(moduleChannel_t *ch)
 	ch->n_wavecontrol = ((ch->n_cmd & 0xF) << 4) | (ch->n_wavecontrol & 0xF);
 }
 
-/* This is a little used effect, despite being present in original ProTracker.
-** E8x was sometimes entirely replaced with code used for demo fx syncing in
-** demo mod players, so it can be turned off by looking at DISABLE_E8X in
-** protracker.ini if you so desire.
+/* This is the least used (and least known) ProTracker effect there is. It's not even
+** documented in the official ProTracker help text...
+**
+** When E8x is seen in a .mod, it is in >95% of cases used for demo effect syncing for
+** demo .mod players, so it is disabled by default (as this effect trashes sample data
+*   and is almost NEVER used as Karplus-Strong intentionally).
+** It can be turned on through ENABLE_E8X in protracker.ini if you so desire.
 */
-static void karplusStrong(moduleChannel_t *ch)
+static void karplusStrong(moduleChannel_t *ch) // E8x
 {
-	int8_t a, b;
-
-	if (config.disableE8xEffect)
+	if (!config.enableE8xEffect)
 		return;
 
 	if (ch->n_loopstart == NULL)
 		return; // ProTracker bugfix
 
-	int8_t *ptr8 = ch->n_loopstart;
-	int16_t end = ((ch->n_replen * 2) & 0xFFFF) - 2;
-	do
-	{
-		a = ptr8[0];
-		b = ptr8[1];
-		*ptr8++ = (a + b) >> 1;
-	}
-	while (--end >= 0);
+	// yes, this means that it's buggy for >64kB loops!
+	uint16_t end = (uint16_t)((ch->n_replen * 2) - 2);
 
-	a = ptr8[0];
-	b = ch->n_loopstart[0];
-	*ptr8 = (a + b) >> 1;
+	int8_t *loopStartPtr = ch->n_loopstart;
+	for (int32_t i = 0; i <= end; i++)
+		loopStartPtr[i] = (loopStartPtr[i+0] + loopStartPtr[i+1]) >> 1;
+
+	loopStartPtr[end+1] = (loopStartPtr[end+1] + loopStartPtr[0]) >> 1;
 }
 
 static void doRetrg(moduleChannel_t *ch)
@@ -490,6 +486,9 @@ static void funkIt(moduleChannel_t *ch)
 
 static void positionJump(moduleChannel_t *ch)
 {
+	if (editor.stepPlayEnabled)
+		return;
+
 	// original PT doesn't do this check, but we have to
 	if (editor.playMode != PLAY_MODE_PATTERN || (editor.currMode == MODE_RECORD && editor.recordMode != RECORD_PATT))
 		modPos = (ch->n_cmd & 0xFF) - 1; // B00 results in -1, but it safely jumps to order 0
@@ -507,6 +506,9 @@ static void volumeChange(moduleChannel_t *ch)
 
 static void patternBreak(moduleChannel_t *ch)
 {
+	if (editor.stepPlayEnabled)
+		return;
+
 	pBreakPosition = (((ch->n_cmd & 0xF0) >> 4) * 10) + (ch->n_cmd & 0x0F);
 	if ((uint8_t)pBreakPosition > 63)
 		pBreakPosition = 0;
@@ -1361,10 +1363,11 @@ bool tickReplayer(void)
 		ciaSetBPM = -1;
 	}
 
-	increasePlaybackTimer();
-
 	if (!editor.stepPlayEnabled)
+	{
+		increasePlaybackTimer();
 		song->tick++;
+	}		
 
 	bool readNewNote = false;
 	if ((uint32_t)song->tick >= (uint32_t)song->speed)
@@ -1507,6 +1510,14 @@ void modSetPattern(uint8_t pattern)
 	modPattern = pattern;
 	song->currPattern = modPattern;
 	ui.updateCurrPattText = true;
+}
+
+void updateNewPos(void) // for after having edited the "POS" digits only
+{
+	modPos = song->currPos;
+	editor.currPatternDisp = &song->header.patternTable[song->currPos];
+	ui.updateSongPos = true;
+	ui.updateSongPattern = true;
 }
 
 void modSetPos(int16_t pos, int16_t row)
